@@ -31,6 +31,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(BASE_DIR))
 sys.path.append(ROOT_DIR)
 
 from efficientvit.seg_model_zoo import create_efficientvit_seg_experiment_model
+from efficientvit.models.nn.mhla import MultiHeadLinearAttention
 
 
 IMAGENET_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
@@ -109,6 +110,10 @@ class SegmentationDataset(Dataset):
         training: bool,
         scale_range: tuple[float, float] = (0.5, 2.0),
         max_samples: int = 0,
+        photometric: bool = False,
+        cat_max_ratio: float = 1.0,
+        crop_retries: int = 10,
+        native_val_labels: bool = False,
     ) -> None:
         self.root = Path(root).expanduser()
         self.dataset = dataset
@@ -116,6 +121,10 @@ class SegmentationDataset(Dataset):
         self.crop_size = crop_size
         self.training = training
         self.scale_range = scale_range
+        self.photometric = photometric
+        self.cat_max_ratio = cat_max_ratio
+        self.crop_retries = crop_retries
+        self.native_val_labels = native_val_labels
         self.samples = self._find_samples()
         if max_samples > 0:
             self.samples = self.samples[:max_samples]
@@ -145,6 +154,8 @@ class SegmentationDataset(Dataset):
                 label_path = label_root / image_path.parent.name / label_name
                 if label_path.is_file():
                     samples.append((image_path, label_path))
+                else:
+                    raise FileNotFoundError(f"Missing original labelIds mask for {image_path}: {label_path}")
             return samples
 
         split_name = "training" if self.split == "train" else "validation"
@@ -155,6 +166,8 @@ class SegmentationDataset(Dataset):
             label_path = label_root / f"{image_path.stem}.png"
             if label_path.is_file():
                 samples.append((image_path, label_path))
+            else:
+                raise FileNotFoundError(f"Missing annotation for {image_path}: {label_path}")
         return samples
 
     def __len__(self) -> int:
@@ -190,25 +203,56 @@ class SegmentationDataset(Dataset):
         label = cv2.resize(label, (scaled_w, scaled_h), interpolation=cv2.INTER_NEAREST)
         image, label = self._pad_to_crop(image, label, crop_h, crop_w)
         height, width = image.shape[:2]
-        top = random.randint(0, height - crop_h)
-        left = random.randint(0, width - crop_w)
+        for _ in range(self.crop_retries):
+            top = random.randint(0, height - crop_h)
+            left = random.randint(0, width - crop_w)
+            if self.cat_max_ratio >= 1.0:
+                break
+            candidate = label[top : top + crop_h, left : left + crop_w]
+            _, counts = np.unique(candidate[candidate >= 0], return_counts=True)
+            if counts.size > 1 and counts.max() / counts.sum() < self.cat_max_ratio:
+                break
         image = image[top : top + crop_h, left : left + crop_w]
         label = label[top : top + crop_h, left : left + crop_w]
         if random.random() < 0.5:
             image = np.ascontiguousarray(image[:, ::-1])
             label = np.ascontiguousarray(label[:, ::-1])
+        if self.photometric:
+            image = self._photometric_transform(image)
         return image, label
+
+    @staticmethod
+    def _photometric_transform(image: np.ndarray) -> np.ndarray:
+        """RGB-only jitter; masks are never passed through color transforms."""
+        image = image.astype(np.float32) / 255.0
+        if random.random() < 0.5:
+            image += random.uniform(-32.0 / 255.0, 32.0 / 255.0)
+        contrast_first = random.random() < 0.5
+        if contrast_first and random.random() < 0.5:
+            image *= random.uniform(0.5, 1.5)
+        hsv = cv2.cvtColor(np.clip(image, 0, 1), cv2.COLOR_RGB2HSV)
+        if random.random() < 0.5:
+            hsv[..., 1] = np.clip(hsv[..., 1] * random.uniform(0.5, 1.5), 0, 1)
+        if random.random() < 0.5:
+            hsv[..., 0] = (hsv[..., 0] + random.uniform(-18, 18)) % 360
+        image = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+        if not contrast_first and random.random() < 0.5:
+            image *= random.uniform(0.5, 1.5)
+        return np.clip(image * 255.0, 0, 255).astype(np.uint8)
 
     def _validation_transform(self, image: np.ndarray, label: np.ndarray):
         crop_h, crop_w = self.crop_size
         image = cv2.resize(image, (crop_w, crop_h), interpolation=cv2.INTER_LINEAR)
-        label = cv2.resize(label, (crop_w, crop_h), interpolation=cv2.INTER_NEAREST)
+        if not self.native_val_labels:
+            label = cv2.resize(label, (crop_w, crop_h), interpolation=cv2.INTER_NEAREST)
         return image, label
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         image_path, label_path = self.samples[index]
         image = np.asarray(Image.open(image_path).convert("RGB"))
         label = self._map_labels(np.asarray(Image.open(label_path)))
+        if label.ndim != 2 or label.shape != image.shape[:2]:
+            raise ValueError(f"Expected a 2-D mask matching image dimensions: {label_path}")
         if self.training:
             image, label = self._train_transform(image, label)
         else:
@@ -244,6 +288,14 @@ def seed_everything(seed: int, rank: int) -> None:
         torch.cuda.manual_seed_all(seed + rank)
 
 
+def seed_worker(_worker_id: int) -> None:
+    # Isolate augmentation seeds from architecture-dependent parameter creation.
+    worker_seed = torch.initial_seed() % (2**32)
+    random.seed(worker_seed)
+    np.random.seed(worker_seed)
+    cv2.setNumThreads(0)
+
+
 def unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
     return model.module if isinstance(model, DistributedDataParallel) else model
 
@@ -266,6 +318,8 @@ def load_compatible_weights(model: torch.nn.Module, checkpoint_path: str) -> dic
     shape_mismatch = sorted(
         key for key, value in state_dict.items() if key in model_state and model_state[key].shape != value.shape
     )
+    if not compatible:
+        raise ValueError("Initialization loaded zero tensors; check checkpoint architecture and key prefixes")
     incompatible = model.load_state_dict(compatible, strict=False)
     return {
         "checkpoint": str(Path(checkpoint_path).resolve()),
@@ -273,20 +327,25 @@ def load_compatible_weights(model: torch.nn.Module, checkpoint_path: str) -> dic
         "missing": sorted(incompatible.missing_keys),
         "unexpected": sorted(key for key in state_dict if key not in model_state),
         "shape_mismatch": shape_mismatch,
+        "loaded_backbone_tensors": sum(key.startswith("backbone.") for key in compatible),
     }
 
 
-def build_optimizer(model: torch.nn.Module, lr: float, weight_decay: float) -> torch.optim.Optimizer:
-    decay, no_decay = [], []
+def build_optimizer(
+    model: torch.nn.Module, lr: float, weight_decay: float, backbone_lr_multiplier: float = 1.0
+) -> torch.optim.Optimizer:
+    groups = {}
     for name, parameter in model.named_parameters():
         if not parameter.requires_grad:
             continue
-        if parameter.ndim <= 1 or name.endswith(".bias") or "norm" in name.lower():
-            no_decay.append(parameter)
-        else:
-            decay.append(parameter)
+        no_decay = parameter.ndim <= 1 or name.endswith(".bias") or "norm" in name.lower()
+        is_backbone = name.removeprefix("module.").startswith("backbone.")
+        multiplier = backbone_lr_multiplier if is_backbone else 1.0
+        key = (multiplier, 0.0 if no_decay else weight_decay)
+        groups.setdefault(key, []).append(parameter)
     return torch.optim.AdamW(
-        [{"params": decay, "weight_decay": weight_decay}, {"params": no_decay, "weight_decay": 0.0}],
+        [{"params": parameters, "weight_decay": decay, "lr": lr * multiplier, "lr_multiplier": multiplier}
+         for (multiplier, decay), parameters in groups.items()],
         lr=lr,
         betas=(0.9, 0.999),
         eps=1.0e-8,
@@ -328,17 +387,33 @@ def evaluate(
     world_size: int,
 ) -> tuple[float, list[float]]:
     model.eval()
+    # Uneven validation shards cannot use DDP forward buffer broadcasts.
+    # Synchronize BN statistics once, then perform independent local forwards.
+    model = unwrap_model(model)
+    for module in model.modules():
+        if isinstance(module, MultiHeadLinearAttention):
+            module.record_diagnostics = False
+    if world_size > 1:
+        for buffer in model.buffers():
+            dist.broadcast(buffer, src=0)
     confusion = torch.zeros((num_classes, num_classes), dtype=torch.float64, device=device)
+    invalid_logits = torch.zeros((), dtype=torch.int64, device=device)
     for batch in loader:
         images = batch["data"].to(device, non_blocking=True)
         targets = batch["label"].to(device, non_blocking=True)
         with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp and device.type == "cuda"):
             logits = model(images)
             logits = F.interpolate(logits, size=targets.shape[-2:], mode="bilinear", align_corners=False)
+        if not torch.isfinite(logits).all():
+            invalid_logits.fill_(1)
+            continue
         predictions = logits.argmax(dim=1)
         confusion += compute_confusion_matrix(predictions, targets, num_classes)
     if world_size > 1:
         dist.all_reduce(confusion, op=dist.ReduceOp.SUM)
+        dist.all_reduce(invalid_logits, op=dist.ReduceOp.MAX)
+    if invalid_logits.item():
+        raise FloatingPointError("Non-finite validation logits; inspect the last checkpoint and model statistics")
     intersection = confusion.diag()
     union = confusion.sum(dim=0) + confusion.sum(dim=1) - intersection
     valid_classes = union > 0
@@ -404,6 +479,7 @@ def append_jsonl(path: Path, payload: dict) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--recipe", choices=["legacy", "cityscapes_v2"], default="legacy")
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--dataset", choices=["cityscapes", "ade20k"], default="cityscapes")
     parser.add_argument("--model", default="efficientvit-seg-b1-cityscapes")
@@ -420,6 +496,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--crop-width", type=int, default=1024)
     parser.add_argument("--scale-min", type=float, default=0.5)
     parser.add_argument("--scale-max", type=float, default=2.0)
+    parser.add_argument("--photometric", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--cat-max-ratio", type=float, default=1.0)
+    parser.add_argument("--crop-retries", type=int, default=10)
+    parser.add_argument("--val-height", type=int, default=None)
+    parser.add_argument("--val-width", type=int, default=None)
+    parser.add_argument("--native-val-labels", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--backbone-lr-multiplier", type=float, default=1.0)
+    parser.add_argument("--allow-scratch", action="store_true", help="Explicitly allow scratch training with cityscapes_v2")
+    parser.add_argument("--mhla-weight-constraint", choices=["none", "clamp"], default="none")
+    parser.add_argument("--mhla-eps", type=float, default=1.0e-15)
+    parser.add_argument("--mhla-qk-eps", type=float, default=0.0)
+    parser.add_argument("--attention-diagnostics", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--lr", type=float, default=6.0e-4)
     parser.add_argument("--min-lr-ratio", type=float, default=0.01)
     parser.add_argument("--weight-decay", type=float, default=0.01)
@@ -432,10 +520,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--sync-bn", action=argparse.BooleanOptionalAction, default=True)
+    selected, _ = parser.parse_known_args()
+    if selected.recipe == "cityscapes_v2":
+        parser.set_defaults(
+            photometric=True, cat_max_ratio=0.75, native_val_labels=True,
+            backbone_lr_multiplier=0.1 if selected.init_checkpoint else 1.0,
+            mhla_weight_constraint="clamp", mhla_eps=1.0e-6,
+            mhla_qk_eps=1.0e-6, attention_diagnostics=True,
+        )
     return parser.parse_args()
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    if args.recipe == "cityscapes_v2" and args.dataset != "cityscapes":
+        raise ValueError("cityscapes_v2 is defined for Cityscapes only")
+    if args.recipe == "cityscapes_v2" and not args.init_checkpoint and not args.allow_scratch:
+        raise ValueError("cityscapes_v2 expects --init-checkpoint; use --allow-scratch for an explicit scratch ablation")
+    if not 0 < args.cat_max_ratio <= 1 or args.crop_retries < 1:
+        raise ValueError("Expected 0 < cat-max-ratio <= 1 and crop-retries >= 1")
+    if (args.val_height is None) != (args.val_width is None):
+        raise ValueError("Provide both --val-height and --val-width")
+    if args.val_height is not None and min(args.val_height, args.val_width) < 1:
+        raise ValueError("Validation dimensions must be positive")
+    if args.backbone_lr_multiplier <= 0 or args.mhla_eps <= 0 or args.mhla_qk_eps < 0:
+        raise ValueError("Expected positive backbone LR multiplier/MHLA epsilon and non-negative QK epsilon")
     if args.max_steps < 1 or args.batch_size < 1 or args.grad_accum_steps < 1:
         raise ValueError("max-steps, batch-size, and grad-accum-steps must be positive")
     if args.workers < 0 or args.crop_height < 1 or args.crop_width < 1:
@@ -466,6 +574,25 @@ def main() -> None:
         signal.signal(signal.SIGUSR1, request_stop)
 
     output_dir = Path(args.output_dir).expanduser()
+    previous_config = output_dir / "config.json"
+    if (output_dir / "last.pt").is_file():
+        if not args.resume:
+            raise ValueError("Output directory contains a checkpoint; use --resume or a fresh directory")
+        if previous_config.is_file():
+            old = json.loads(previous_config.read_text(encoding="utf-8"))
+            # Keep the optimizer schedule and training protocol fixed on resume.
+            ignored = {"resume", "output_dir", "workers", "log_interval", "save_interval"}
+            defaults = {"recipe": "legacy", "photometric": False, "cat_max_ratio": 1.0,
+                        "crop_retries": 10, "native_val_labels": False, "val_height": None,
+                        "val_width": None, "backbone_lr_multiplier": 1.0, "allow_scratch": False,
+                        "mhla_weight_constraint": "none", "mhla_eps": 1.0e-15, "mhla_qk_eps": 0.0}
+            defaults["attention_diagnostics"] = False
+            changed = [key for key, value in vars(args).items()
+                       if key not in ignored and old.get(key, defaults.get(key)) != value]
+            if changed:
+                raise ValueError(f"Resume protocol changed ({', '.join(changed)}); use a fresh output directory")
+        else:
+            raise ValueError("Resume checkpoint has no config.json; verify its protocol before resuming")
     if is_master:
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "config.json").write_text(json.dumps(vars(args), indent=2) + "\n", encoding="utf-8")
@@ -480,14 +607,18 @@ def main() -> None:
         crop_size,
         training=True,
         scale_range=(args.scale_min, args.scale_max),
+        photometric=args.photometric,
+        cat_max_ratio=args.cat_max_ratio,
+        crop_retries=args.crop_retries,
     )
     val_dataset = SegmentationDataset(
         args.data_root,
         args.dataset,
         "val",
-        crop_size,
+        (args.val_height or args.crop_height, args.val_width or args.crop_width),
         training=False,
         max_samples=args.val_max_samples,
+        native_val_labels=args.native_val_labels,
     )
     train_sampler = DistributedSampler(
         train_dataset,
@@ -506,6 +637,8 @@ def main() -> None:
         pin_memory=device.type == "cuda",
         drop_last=True,
         persistent_workers=args.workers > 0,
+        worker_init_fn=seed_worker,
+        generator=torch.Generator().manual_seed(args.seed + rank),
     )
     val_loader = DataLoader(
         val_dataset,
@@ -514,7 +647,11 @@ def main() -> None:
         num_workers=max(args.workers // 2, 0),
         pin_memory=device.type == "cuda",
         persistent_workers=args.workers > 1,
+        worker_init_fn=seed_worker,
+        generator=torch.Generator().manual_seed(args.seed + rank + 100000),
     )
+    if len(train_loader) == 0:
+        raise ValueError("Too few paired training samples for batch-size/world-size; check dataset discovery")
 
     model = create_efficientvit_seg_experiment_model(
         name=args.model,
@@ -525,13 +662,19 @@ def main() -> None:
     initialization_report = None
     if args.init_checkpoint:
         initialization_report = load_compatible_weights(model, args.init_checkpoint)
+        if args.recipe == "cityscapes_v2" and initialization_report["loaded_backbone_tensors"] == 0:
+            raise ValueError("cityscapes_v2 initialization loaded no backbone tensors; check checkpoint key names")
+    for module in model.modules():
+        if isinstance(module, MultiHeadLinearAttention):
+            module.eps = args.mhla_eps
+            module.qk_eps = args.mhla_qk_eps
     if args.sync_bn and world_size > 1:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     model = model.to(device)
     if world_size > 1:
         model = DistributedDataParallel(model, device_ids=[local_rank] if device.type == "cuda" else None)
 
-    optimizer = build_optimizer(model, args.lr, args.weight_decay)
+    optimizer = build_optimizer(model, args.lr, args.weight_decay, args.backbone_lr_multiplier)
     scaler = torch.amp.GradScaler(device.type, enabled=args.amp and device.type == "cuda")
     start_step, epoch, best_miou = 0, 0, -1.0
     last_checkpoint = output_dir / "last.pt"
@@ -545,6 +688,9 @@ def main() -> None:
             f"global_batch={args.batch_size * world_size * args.grad_accum_steps}, params={parameter_count:,}, "
             f"steps={start_step}->{args.max_steps}"
         )
+        print(f"recipe={args.recipe}, train_samples={len(train_dataset)}, val_samples={len(val_dataset)}, "
+              f"dataset_equivalent_passes={args.max_steps * args.batch_size * world_size * args.grad_accum_steps / len(train_dataset):.1f}, "
+              f"native_val_labels={args.native_val_labels}, val_image_size={val_dataset.crop_size}")
         if initialization_report is not None:
             (output_dir / "initialization_report.json").write_text(
                 json.dumps(initialization_report, indent=2) + "\n", encoding="utf-8"
@@ -561,12 +707,17 @@ def main() -> None:
     metrics_path = output_dir / "metrics.jsonl"
     interval_loss = 0.0
     interval_start = time.perf_counter()
+    skipped_updates = 0
+    consecutive_skipped_updates = 0
 
     for step in range(start_step, args.max_steps):
         model.train()
+        for module in model.modules():
+            if isinstance(module, MultiHeadLinearAttention):
+                module.record_diagnostics = args.attention_diagnostics and (step + 1) % args.log_interval == 0
         lr = learning_rate_at_step(step, args.max_steps, args.warmup_steps, args.lr, args.min_lr_ratio)
         for group in optimizer.param_groups:
-            group["lr"] = lr
+            group["lr"] = lr * group.get("lr_multiplier", 1.0)
 
         accumulated_loss = 0.0
         for accumulation_index in range(args.grad_accum_steps):
@@ -594,14 +745,31 @@ def main() -> None:
                     logits = F.interpolate(logits, size=targets.shape[-2:], mode="bilinear", align_corners=False)
                     loss = F.cross_entropy(logits, targets, ignore_index=-1)
                     scaled_loss = loss / args.grad_accum_steps
+                finite = torch.tensor(int(torch.isfinite(loss)), device=device)
+                if world_size > 1:
+                    dist.all_reduce(finite, op=dist.ReduceOp.MIN)
+                if not finite.item():
+                    raise FloatingPointError(f"Non-finite training loss at step {step + 1}; last periodic checkpoint retained")
                 scaler.scale(scaled_loss).backward()
             accumulated_loss += loss.detach().item()
 
-        if args.grad_clip > 0:
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+        scaler.unscale_(optimizer)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip if args.grad_clip > 0 else float("inf"))
+        if not scaler.is_enabled() and not torch.isfinite(grad_norm):
+            raise FloatingPointError(f"Non-finite FP32 gradients at step {step + 1}")
+        previous_scale = scaler.get_scale()
         scaler.step(optimizer)
         scaler.update()
+        update_skipped = scaler.get_scale() < previous_scale
+        skipped_updates += int(update_skipped)
+        consecutive_skipped_updates = consecutive_skipped_updates + 1 if update_skipped else 0
+        if consecutive_skipped_updates >= 20:
+            raise FloatingPointError("AMP skipped 20 consecutive updates; inspect gradients or rerun diagnostics with --no-amp")
+        if args.mhla_weight_constraint == "clamp":
+            with torch.no_grad():
+                for module in model.modules():
+                    if isinstance(module, MultiHeadLinearAttention):
+                        module.mixing_weight.clamp_(0.0, 1.0)
         optimizer.zero_grad(set_to_none=True)
         completed_step = step + 1
 
@@ -620,7 +788,20 @@ def main() -> None:
                 "loss": interval_loss / args.log_interval,
                 "lr": lr,
                 "seconds_per_step": elapsed / args.log_interval,
+                "gradient_norm": float(grad_norm),
+                "amp_scale": scaler.get_scale(),
+                "optimizer_step_skipped": update_skipped,
+                "skipped_updates_this_session": skipped_updates,
             }
+            mixing_weights = [module.mixing_weight.detach().flatten() for module in model.modules()
+                              if isinstance(module, MultiHeadLinearAttention)]
+            if mixing_weights:
+                weights = torch.cat(mixing_weights)
+                payload.update(mhla_weight_min=weights.min().item(), mhla_weight_max=weights.max().item(),
+                               mhla_negative_fraction=(weights < 0).float().mean().item())
+                if args.attention_diagnostics:
+                    payload["attention"] = {name: module.last_diagnostics for name, module in model.named_modules()
+                                            if isinstance(module, MultiHeadLinearAttention)}
             print(json.dumps(payload))
             append_jsonl(metrics_path, payload)
             interval_loss = 0.0

@@ -109,6 +109,10 @@ Examples: [segmentation](../../assets/eval_efficientvit_seg_model.sh)
 
 ## Lightweight E0--E3 training
 
+For the updated augmentation, initialization, validation and stability protocol,
+see [training recipe v2](TRAINING_RECIPE.md). Select it with
+`--recipe cityscapes_v2` and use a fresh output directory.
+
 The official release does not include a segmentation trainer. This branch adds
 [train_efficientvit_seg_model.py](train_efficientvit_seg_model.py) as a common,
 compute-conscious protocol for comparing the original architecture (E0) with

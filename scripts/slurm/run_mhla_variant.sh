@@ -65,8 +65,12 @@ run_training() {
     if [[ -n "${MHLA_INIT_CHECKPOINT:-}" ]]; then
         init_args=(--init-checkpoint "${MHLA_INIT_CHECKPOINT}")
     fi
+    if [[ "${MHLA_ALLOW_SCRATCH:-0}" == "1" ]]; then
+        init_args+=(--allow-scratch)
+    fi
     torchrun --standalone --nproc_per_node="${MHLA_GPUS_PER_EXPERIMENT}" \
         applications/efficientvit_seg/train_efficientvit_seg_model.py \
+        --recipe "${MHLA_RECIPE:-legacy}" \
         --data-root "${MHLA_TRAIN_DATA}" \
         --dataset "${MHLA_DATASET}" \
         --model "${MHLA_MODEL_NAME}" \

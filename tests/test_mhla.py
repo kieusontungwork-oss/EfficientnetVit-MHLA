@@ -1,4 +1,5 @@
 import unittest
+import math
 
 import torch
 
@@ -32,12 +33,15 @@ class MultiHeadLinearAttentionTest(unittest.TestCase):
             with self.subTest(num_groups=num_groups):
                 torch.manual_seed(1)
                 module = MultiHeadLinearAttention(num_groups=num_groups, eps=1.0e-6)
+                module.record_diagnostics = True
                 q = torch.relu(torch.randn(3, 2, 8, 5, 7, requires_grad=True))
                 k = torch.relu(torch.randn(3, 2, 8, 5, 7, requires_grad=True))
                 v = torch.randn(3, 2, 8, 5, 7, requires_grad=True)
                 out = module(q, k, v)
                 self.assertEqual(out.shape, v.shape)
                 self.assertTrue(torch.isfinite(out).all())
+                self.assertGreaterEqual(module.last_diagnostics["denominator_abs_min"], 0)
+                self.assertTrue(math.isfinite(module.last_diagnostics["output_abs_max"]))
                 out.square().mean().backward()
                 self.assertIsNotNone(module.mixing_weight.grad)
                 self.assertTrue(torch.isfinite(module.mixing_weight.grad).all())
