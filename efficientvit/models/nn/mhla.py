@@ -62,6 +62,9 @@ class MultiHeadLinearAttention(nn.Module):
             raise ValueError(f"num_groups must be positive, got {num_groups}")
         self.num_groups = num_groups
         self.eps = eps
+        self.qk_eps = 0.0
+        self.record_diagnostics = False
+        self.last_diagnostics = {}
         self.mixing_weight = nn.Parameter(_cosine_distance_mixing(num_groups))
 
     @staticmethod
@@ -83,6 +86,9 @@ class MultiHeadLinearAttention(nn.Module):
             )
 
         batch, feature_heads, head_dim, height, width = q.shape
+        if self.qk_eps:
+            q = q + self.qk_eps
+            k = k + self.qk_eps
         num_tokens = height * width
         active_groups = min(self.num_groups, num_tokens)
         group_ids = self._spatial_group_ids(height, width, active_groups, q.device)
@@ -128,6 +134,7 @@ class MultiHeadLinearAttention(nn.Module):
         if equal_sized_groups:
             numerator = torch.einsum("bhmnd,bhmde->bhmne", q_grouped, mixed_summaries)
             denominator = torch.einsum("bhmnd,bhmd->bhmn", q_grouped, mixed_normalizers).unsqueeze(-1)
+            diagnostic_denominators = [denominator.detach()] if self.record_diagnostics else []
             out = (
                 (numerator / (denominator + self.eps))
                 .reshape(batch, feature_heads, grid_h, grid_w, group_height, group_width, head_dim)
@@ -137,6 +144,7 @@ class MultiHeadLinearAttention(nn.Module):
         else:
             # Group sizes can differ, so compute each query group separately.
             out = torch.zeros_like(v)
+            diagnostic_denominators = []
             for group_idx in range(active_groups):
                 token_idx = torch.nonzero(group_ids == group_idx, as_tuple=False).flatten()
                 q_group = q.index_select(2, token_idx)
@@ -145,6 +153,16 @@ class MultiHeadLinearAttention(nn.Module):
                     "bhnd,bhd->bhn", q_group, mixed_normalizers[:, :, group_idx]
                 ).unsqueeze(-1)
                 group_out = numerator / (denominator + self.eps)
+                if self.record_diagnostics:
+                    diagnostic_denominators.append(denominator.detach())
                 out.index_copy_(2, token_idx, group_out)
 
+        if self.record_diagnostics:
+            with torch.no_grad():
+                denominators = torch.cat([value.flatten() for value in diagnostic_denominators])
+                self.last_diagnostics = {
+                    "denominator_abs_min": denominators.abs().min().item(),
+                    "denominator_nonpositive_fraction": (denominators <= 0).float().mean().item(),
+                    "output_abs_max": out.detach().abs().max().item(),
+                }
         return out.transpose(-1, -2).reshape(batch, feature_heads, head_dim, height, width)

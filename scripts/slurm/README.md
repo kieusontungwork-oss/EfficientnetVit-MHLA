@@ -69,6 +69,13 @@ parameters, estimated MACs/FLOPs, latency, FPS, and peak GPU memory.
 
 ## Train and then evaluate
 
+The updated [Cityscapes v2 recipe](../../applications/efficientvit_seg/TRAINING_RECIPE.md)
+adds crop retries, RGB photometric augmentation, pretrained-backbone LR scaling,
+native validation masks and MHLA stability safeguards. Add
+`--recipe cityscapes_v2 --init-checkpoint /path/to/efficientvit_b1_r224.pt`
+to the commands below and use a **new output root**. `legacy` remains the default
+for existing commands. Run an E0 pilot before launching all four variants.
+
 This branch includes a lightweight, transparent trainer because the official
 EfficientViT release does not include its segmentation training recipe. It is
 intended for a controlled E0--E3 comparison, not as a claim that the paper's

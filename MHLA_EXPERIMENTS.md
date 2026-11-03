@@ -143,6 +143,13 @@ only its four new MHLA mixing matrices as missing.
 
 ## Training
 
+The updated, versioned [Cityscapes v2 recipe](applications/efficientvit_seg/TRAINING_RECIPE.md)
+adds image-only photometric augmentation, crop retries, pretrained-backbone LR
+scaling, native-mask validation and MHLA stability safeguards. Select
+`--recipe cityscapes_v2`, use a new output directory and verify the E0 pilot
+before repeating the architecture comparison. The earlier E2 collapse remains
+a failed pilot; stabilization and long-run convergence still need measurement.
+
 The official repository does not release a semantic-segmentation training
 script or its training configuration; it contains evaluation/demo code and
 pretrained checkpoints only. This branch therefore supplies

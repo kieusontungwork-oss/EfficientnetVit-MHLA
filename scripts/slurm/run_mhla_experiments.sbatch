@@ -33,6 +33,8 @@ Model/data options:
   --checkpoint-template PATH  Supports {run_dir}, {run_name}, {experiment}, {groups}
 
 Training options:
+  --recipe NAME               legacy or cityscapes_v2 (default: legacy)
+  --allow-scratch             Explicit scratch ablation for cityscapes_v2
   --init-checkpoint PATH      Optional common initialization checkpoint
   --max-steps N               Optimizer steps (default: 12000)
   --train-batch-size N        Per-GPU training batch (default: 2)
@@ -76,6 +78,8 @@ CROP_SIZE=1024
 OUTPUT_ROOT=""
 CHECKPOINT_TEMPLATE="{run_dir}/best.pt"
 TRAIN_COMMAND=""
+RECIPE="legacy"
+ALLOW_SCRATCH=0
 INIT_CHECKPOINT=""
 MAX_STEPS=12000
 TRAIN_BATCH_SIZE=2
@@ -112,6 +116,8 @@ while [[ $# -gt 0 ]]; do
         --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
         --checkpoint-template) CHECKPOINT_TEMPLATE="$2"; shift 2 ;;
         --train-command) TRAIN_COMMAND="$2"; shift 2 ;;
+        --recipe) RECIPE="$2"; shift 2 ;;
+        --allow-scratch) ALLOW_SCRATCH=1; shift ;;
         --init-checkpoint) INIT_CHECKPOINT="$2"; shift 2 ;;
         --max-steps) MAX_STEPS="$2"; shift 2 ;;
         --train-batch-size) TRAIN_BATCH_SIZE="$2"; shift 2 ;;
@@ -179,6 +185,8 @@ export MHLA_EVAL_PATH="${EVAL_PATH}"
 export MHLA_CROP_SIZE="${CROP_SIZE}"
 export MHLA_CHECKPOINT_TEMPLATE="${CHECKPOINT_TEMPLATE}"
 export MHLA_TRAIN_COMMAND="${TRAIN_COMMAND}"
+export MHLA_RECIPE="${RECIPE}"
+export MHLA_ALLOW_SCRATCH="${ALLOW_SCRATCH}"
 export MHLA_INIT_CHECKPOINT="${INIT_CHECKPOINT}"
 export MHLA_MAX_STEPS="${MAX_STEPS}"
 export MHLA_TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE}"
