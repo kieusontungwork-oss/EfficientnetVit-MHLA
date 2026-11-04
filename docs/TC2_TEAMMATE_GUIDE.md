@@ -15,9 +15,9 @@ account runs one arm with a 2-job chain. The recipe is fixed in `scripts/protoco
 - VPN: GlobalProtect `vpngate-student.ntu.edu.sg` (Linux: `gpclient --browser manual connect vpngate-student.ntu.edu.sg`).
 - `ssh <your_username>@10.96.189.12`
 
-## 1. Get the code (branch `ryan/tc2-training`)
+## 1. Get the code (branch `ryan/tc2-training`; after the PR is merged, use `codex/mhla-efficientvit` from trigersole)
 ```bash
-git clone -b ryan/tc2-training https://github.com/trigersole/EfficientnetVit-MHLA.git ~/EfficientnetVit-MHLA
+git clone -b ryan/tc2-training https://github.com/kieusontungwork-oss/EfficientnetVit-MHLA.git ~/EfficientnetVit-MHLA
 cd ~/EfficientnetVit-MHLA
 ```
 
