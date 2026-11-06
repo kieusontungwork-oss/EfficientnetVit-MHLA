@@ -1,0 +1,1192 @@
+================================================================================
+                    CCDS GPU CLUSTER TC2 USER GUIDE
+================================================================================
+Source document : CCDSGPU-TC2-Masters-UserGuide.pdf (27 pages, A4)
+Document update : [ 13 August 2025 ]
+Classification  : Restricted
+Producer        : Acrobat Distiller 25.0 (Windows)
+PDF created     : 2025-08-13 15:41 (+08) | PDF modified: 2026-03-31 15:15 (+08)
+
+NOTE ON THIS TEXT VERSION:
+This text file preserves the full textual content of the PDF, including all
+commands, tables (re-rendered as plain text), reference URLs, notes and
+warnings. Lines beginning with [SCREENSHOT] mark where the PDF embeds an
+illustration/screenshot (those are graphical and not extractable as text).
+Each section records the original PDF page numbers as (p. N).
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+    Content                                             Page
+    Introduction                                        2
+    Logging Into the Cluster                            4
+    Conda Package and Environment                       9
+    SLURM User Guide                                    13
+    Guideline for SLURM Job Submission                  16
+    Miscellaneous                                       22
+    Other Resources for Application                     26
+    Important Notice                                    27
+
+================================================================================
+1. INTRODUCTION  (p. 2-3)
+================================================================================
+
+                       CCDS GPU CLUSTER TC2
+  Head Node (10.96.189.12) <---- Client (User) Host Machine
+        |
+        +---- Data Storage (/home)
+        +---- Compute nodes (GPU cards)
+
+[SCREENSHOT] Network architecture diagram: Head Node 10.96.189.12 connected to
+Data Storage (/home) and Compute Nodes; the Client (User) Host Machine connects
+to the Head Node.
+
+In CCDS GPU Cluster TC2, there are two diverse types of nodes for diverse types
+of tasks. The initial node you log in to is called the Head Node, serving as
+the main access point for the cluster.
+
+The GPU cards for computation are in those Compute Nodes, NOT in the Head Node.
+
+The users are not allowed to compile and run code on the Head Node. The users
+must create the job script to submit the computation request (knowns as
+non-interactive job) to SLURM (Simple Linux Utility for Resource Management)
+job scheduler, for the system to process in the allocated GPU Compute Nodes.
+
+The available resources for the user to utilise for GPU computation is limited
+by the assigned QoS (SLURM-Quality of Service).
+
+--------------------------------------------------------------------------------
+1.1 Client Tools for accessing the CCDS GPU Cluster Head Node  (p. 2-3)
+--------------------------------------------------------------------------------
+Name of    | Description & Purpose                        | Where to download
+Program    |                                              |
+-----------+----------------------------------------------+---------------------------
+PuTTY      | [SSH Client for Windows]                     | The installer is
+           | PuTTY is an open-source software as SSH      | available online and
+           | and Telnet Client for Windows Platform.      | can be easily located
+           |                                              | using any search
+           | SSH (Secure Socket Shell) is a network       | engine.
+           | protocol that gives users, particularly      |
+           | system administrators, a secure way to       | Tip:
+           | access a computer over an unsecured network. | Download the portable
+           |                                              | edition "putty.exe"
+           | Online References:                           | - no need to install,
+           | https://www.ssh.com/academy/ssh/putty/mac    | ready for use
+           | https://www.servermania.com/kb/articles/ssh-mac/ | http://www.chiark.greenend.org.uk/~sgtatham/putty/download.html
+           | [ How to SSH on MAC ]                        |
+           |                                              | Other Online References:
+           |                                              | https://www.ssh.com/academy/ssh/putty
+-----------+----------------------------------------------+---------------------------
+WinSCP     | [SFTP Client for Windows]                    | The official download
+           | WinSCP (Windows Secure Copy) is a free and   | site for WinSCP:
+           | open-source SFTP, FTP, WebDAV and SCP client | https://winscp.net/eng/index.php
+           | for Microsoft Windows                        |
+           |                                              | Installation tip:
+           | SFTP (SSH File Transfer Protocol) is an      | Select "Explorer" for
+           | encrypted or secure file transfer protocol.  | user interface style
+           |                                              |
+           |                                              | Other Online References:
+           |                                              | https://winscp.net/eng/docs/guide_install
+-----------+----------------------------------------------+---------------------------
+FileZilla  | [SFTP Client for MAC]                        | Download Site for
+           |                                              | FileZilla:
+           | References for MAC user, apply SFTP commands | https://filezilla-project.org/index.php
+           | in the terminal for data transfer:           |
+           | https://help.uillinois.edu/TDClient/37/uic/KB/ArticleDet?ID=582 |
+           | https://www.servermania.com/kb/articles/ssh-mac |
+           | https://beebom.com/how-to-use-mac-terminal-ftp-sftp-client/ |
+           | https://tipsmake.com/use-terminal-on-mac-as-ftp-or-sftp-client |
+-----------+----------------------------------------------+---------------------------
+
+--------------------------------------------------------------------------------
+1.2 Workflow for the user  (p. 3)
+--------------------------------------------------------------------------------
+1. Establish your first access via SSH. Your home directory will only be
+   created after your first login.
+
+2. Uploading all the necessary job script, coding, dataset from your host
+   machine to the cluster's storage (your home directory) via SFTP client.
+
+3. Setup and load your Conda environment(s) with required applications for
+   computation.
+
+4. Submitting the non-interactive job using SLURM scheduler.
+
+5. Copy the job output back to your host machine, via SFTP client.
+
+--------------------------------------------------------------------------------
+1.3 Assumed knowledge  (p. 3)
+--------------------------------------------------------------------------------
+This guide assumes that you have basic knowledge of accessing the Linux system
+via command-line interface:
+
+- Connecting to a Linux server via SSH
+- Moving files to a Linux server from your local computer, and vice versa
+- The Linux basic commands such as: ls, cd, pwd, cp, mv, rm, chmod etc.
+
+  References for Basic Linux Commands:
+  https://serverdale.com/en/linux-commands
+  https://centoshelp.org/resources/commands/linux-system-commands/
+  https://www.guru99.com/must-know-linux-commands.html
+
+- The GPU cards for your computation are NOT in the Head Node. So, do not
+  attempt to execute command to acquire the GPU information in the Head Node
+  e.g. "nvidia-smi", "lspci | grep -E 'VGA|3D'" and etc.
+
+================================================================================
+2. LOGGING INTO THE CLUSTER  (p. 4-8)
+================================================================================
+
+The SCSE GPU Cluster TC2 is accessible only within NTU network.
+For off-campus access, the user must login to NTU Virtual Private Network
+(VPN) [ https://ntuvpn.ntu.edu.sg ]
+
+--------------------------------------------------------------------------------
+2.1 Connection details  (p. 4)
+--------------------------------------------------------------------------------
+    Cluster              CCDS GPU CLUSTER TC2
+    IP Address           10.96.189.12
+    Login Credential     Your NTU Network Account ID (in Lower Case) & Password
+
+--------------------------------------------------------------------------------
+2.2 SSH via PuTTY  (p. 4)
+--------------------------------------------------------------------------------
+1. Launch PuTTY.
+   - Under the Host Name (or IP address) enter [10.96.189.12].
+   - Ensure that the Port is 22.
+
+[SCREENSHOT] PuTTY configuration window showing Host Name 10.96.189.12, Port 22,
+connection type SSH.
+
+2. Examples of command-line access via your LINUX or MAC Terminal:
+   >> ssh -l <Your Username in Lower Case> 10.96.189.12
+   >> ssh -p 22 <Your Username in Lower Case>@10.96.189.12
+
+3. On your first login, you will be asked to accept the host key.
+   Do click "yes" to continue, and you should get a terminal window, where you
+   will be prompted for your credentials. Log in with your NTU Network Account
+   ID (in Lower Case) and password.
+
+[SCREENSHOT] First-login host key prompt / credential prompt terminal window.
+
+Best practice to exit the SSH session: type "exit" or press the keys Ctrl + D
+(Note: the original document reads "exist the SSH session").
+
+--------------------------------------------------------------------------------
+2.3 SFTP via WinSCP/FileZilla - For file transfer between your local host
+    machine and GPU cluster  (p. 5-6)
+--------------------------------------------------------------------------------
+1. In this example, the client tool using for file transfer is WinSCP.
+
+2. Launch WinSCP. Check that the File Protocol is set to SFTP.
+
+3. Under the Host Name, key in the IP Address [10.96.189.12]. Ensure that Port
+   is 22. Key in your NTU Network Account ID (in lower case) and password for
+   the User name and Password field.
+
+[SCREENSHOT] WinSCP login dialog: File protocol SFTP, Host name 10.96.189.12,
+Port 22, User name / Password fields.
+
+4. Ensure that you are in the correct directory before transferring your files
+   over. You can verify the pathname of your home directory with following
+   command in SSH session:
+   >> pwd
+
+[SCREENSHOT] WinSCP session window showing local and remote directory panes.
+
+   Select the file that you want transfer and press the key "F5".
+   - The Upload-Window will pop out to transfer the file from your host machine
+     to your home directory.
+   - The Download-Window will pop out to transfer file from your home directory
+     to selected local disk in your host machine.
+
+[SCREENSHOT] Upload window (transfer dialog).
+
+[SCREENSHOT] (p. 7) Additional WinSCP transfer/session screenshot.
+
+--------------------------------------------------------------------------------
+2.4 Maintain Data in Your Directory  (p. 8)
+--------------------------------------------------------------------------------
+1. Your data and computation are bounded within your assigned home directory
+   and share folder (if any).
+
+2. All home directories are set with disk quota limitation. The student users
+   may have disk quota of 100GB, depending on their usage assignment.
+
+3. The user may encounter following issues when the quota usage reached more
+   than 98%:
+   - Unable to login
+   - Unable to compute data
+   - Unable to save in new data, or having data lost
+
+4. You should do regular housekeeping, ensure there is sufficient free space
+   for your computation.
+
+5. Command to verify the disk usage at command line: ncdu
+
+[SCREENSHOT] ncdu disk usage scan view.
+
+   Press the key "q" to abort disk scanning or exit.
+   Reference on ncdu: https://ostechnix.com/check-disk-space-usage-linux-using-ncdu/
+
+6. Best practices to ensure enough disk space for your computation:
+   - Regularly check on the disk usage for your home directory
+   - Transfer and backup your data to your personal device
+   - Remove unwanted data in your home directory
+   - Do not remove those system directories and files, which naming with a "."
+     in front, such as ".bash_profile", ".bashrc", ".config" etc.
+   - The purpose of the system folder ".conda" is to store the packages and
+     environments that you have setup and installed for your computation.
+     Remove those unwanted environments to free the disk space.
+
+================================================================================
+3. CONDA PACKAGE AND ENVIRONMENT  (p. 9-12)
+================================================================================
+
+The module package tool is available on the GPU Cluster, allowing users to
+easily configure their environment based on the application needed. As this
+cluster is shared among students of different courses in CCDS, there may be
+some applications that are not relevant to you.
+
+To view the available share applications, apply the modules under
+/cm/shared/modulefiles
+
+    >> module avail
+
+[SCREENSHOT] Output of "module avail" listing shared modules.
+
+To view the description of a module:
+    >> module show <module_name>
+To load the selected module for operation:
+    >> module load <module_name>
+To list loaded module:
+    >> module list
+To unload the selected module:
+    >> module unload <module_name>
+To unload all loaded modules:
+    >> module purge
+To know more about the command "module":
+    >> module --help
+
+--------------------------------------------------------------------------------
+3.1 Setup Your own Conda Environment  (p. 9-10)
+--------------------------------------------------------------------------------
+In each GPU Cluster, the user has no right to execute Sudo and install
+applications to the system folders.
+
+You may download and install the Anaconda or Miniconda in your home directory
+for operation. Reference links:
+  https://www.anaconda.com/download/success
+  https://docs.conda.io/en/latest/miniconda.html
+  # There are also available installers under /apps/_installers #
+
+OR use the available Anaconda in this GPU Cluster:
+    To load the module of anaconda:
+        >> module load anaconda
+    To view the information of the loaded anaconda:
+        >> conda info
+
+[SCREENSHOT] Output of "conda info".
+
+The Conda commands can only run after the module is loaded. By default, the
+read-only base environment is activated. There are ready packages in the
+centralised Anaconda (or the base environment), you may issue the following
+command to view the list:
+    >> conda list
+
+You are not allowed to install any packages in the base environment. If you
+find those packages in the base environment do not meet your requirement, you
+may setup own conda environment in the home directory, and install the require
+packages for your operation.
+
+For first-time running Conda, the system may prompt you to execute the command
+"conda init <shell>". The purpose of the command is to write some shell code
+into the system file (e.g. ~/.bashrc) as startup script for conda.
+For default shell using bash, execute the following
+    >> conda init bash
+For the change to take effect, execute
+    >> source .bashrc
+
+[SCREENSHOT] Conda init / first-run message.
+
+--------------------------------------------------------------------------------
+3.2 Commands to manage the Conda environment  (p. 10)
+--------------------------------------------------------------------------------
+Description                                             | Examples of Command Execution
+--------------------------------------------------------+------------------------------------------------
+To create a new Conda environment naming as "TestEnv"   | >> conda create -n TestEnv
+                                                        |
+Activate the environment "TestEnv"                      | >> conda activate TestEnv
+                                                        |
+To exit the environment "TestEnv"                       | >> conda deactivate
+                                                        |
+List the environment created in your home directory     | >> conda env list
+                                                        |
+To export the configuration of an environment into a    | >> conda env export > TestEnv.yml
+.yml file.                                              |
+                                                        |
+To create the environment from the existing .yml file   | >> conda env create -f TestEnv.yml
+                                                        |
+To update the content of an existing .yml file, with    | >> conda env update --prefix ./TestEnv
+option "prune" to remove the outdated configuration     |     --file TestEnv.yml --prune
+and dependencies                                        |
+                                                        |
+To remove the environment "TestEnv"                     | >> conda env remove -n TestEnv
+--------------------------------------------------------+------------------------------------------------
+
+Reference on managing the environment:
+https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-with-commands
+
+--------------------------------------------------------------------------------
+3.3 Commands to manage the variables in the environment  (p. 10)
+--------------------------------------------------------------------------------
+Description                                             | Examples of Command Execution
+--------------------------------------------------------+------------------------------------------------
+List the variables in the environment                   | >> conda env config vars list
+                                                        |
+To set a new variable in the environment "my_var1"      | >> conda env config vars set my_var1=value
+                                                        |
+To unset (remove) the variable "my_var1"                | >> conda env config vars unset my_var1
+                                                        |
+Always re-activate the environment after adding a new   | >> conda activate TestEnv
+variable and removing a variable                        |
+--------------------------------------------------------+------------------------------------------------
+
+[SCREENSHOT] Conda environment variables example output.
+
+--------------------------------------------------------------------------------
+3.4 Commands to manage the packages in the environment  (p. 11-12)
+--------------------------------------------------------------------------------
+The user must always create a new environment to install the package for own
+use.
+
+Description                                             | Examples of Command Execution
+--------------------------------------------------------+------------------------------------------------
+Search for available packages. For this example,        | >> conda search python
+search for available python to install                  | >> conda search python=3.9
+                                                        |
+To search and install available package from third-     | # To search for a package in 3rd party
+party channel                                           | channel "conda-forge"
+                                                        | >> conda search -c conda-forge <name of package>
+The conda package manager usually installs the package  |
+from the official default channels. You must specify    | # To install the package from the selected
+the channel in the command if to search and install     | third-party channel
+package from third-party channel                        | >> conda install -c conda-forge <name of package>
+                                                        |
+conda-forge is one of the third-party channels,         |
+providing latest conda packages.                        |
+                                                        |
+Reference links:                                        |
+https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/channels.html |
+https://ostechnix.com/enable-conda-forge-channel-for-conda-package-manager/ |
+--------------------------------------------------------+
+List the installed packages                             | >> conda list
+                                                        |
+Install selected version of the package                 | >> conda install python=3.9.7
+                                                        |
+The GPU Compute Nodes are ready with their own version  | # To apply Cuda available in the Nodes for
+of Cuda by NVIDIA, which may not be up-to-date or       | SCSE GPU CLUSTER TC2, add the module loading
+applicable for user's operation.                        | command in the job script
+                                                        | >> module load cuda/12.8.0
+The user may setup own Conda Environment, and install   |
+the desired version of Cuda Toolkit for operation.      | # Search for available version of Cuda Toolkit
+                                                        | >> conda search cudatoolkit
+Reference links:                                        | >> conda search -c nvidia cudatoolkit
+https://docs.nvidia.com/deploy/cuda-compatibility/index.html |
+https://anaconda.org/nvidia/cudatoolkit                 | # Then install the select version for operation
+                                                        | >> conda install cudatoolkit=<version>
+                                                        | >> conda install -c nvidia cuda-toolkit=<version>
+                                                        |
+Remove a package                                        | >> conda uninstall python=3.9
+--------------------------------------------------------+------------------------------------------------
+
+Reference links on installation of packages:
+https://www.anaconda.com/docs/tools/working-with-conda/packages/install-packages
+https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-pkgs.html#installing-packages
+
+IMPORTANT NOTE:
+Advise to install the packages using conda install. Only use pip install if
+the required package is not available in conda. This is to prevent package
+incompatibility.
+
+If you want your conda environment to be loaded each time you start your SSH
+session, you may append "module load anaconda/25.5.1" and
+"conda activate yourenvname" at the end of the system file ".bashrc", located
+at your home directory.
+
+--------------------------------------------------------------------------------
+3.5 Remove unwanted Conda environment, to free disk space  (p. 12)
+--------------------------------------------------------------------------------
+1. Exit from the conda environment
+   >> conda deactivate
+
+2. List the conda environment in your home directory
+   >> conda env list
+
+3. Only remove unwanted environment in your home directory
+   >> conda env remove --name <Name of ENV to remove>
+
+[SCREENSHOT] conda env list / remove example.
+
+================================================================================
+4. SLURM USER GUIDE  (p. 13-15)
+================================================================================
+
+SLURM (Simple Linux Utility for Resource Management) is a software package for
+submitting, scheduling, and monitoring jobs on large computer clusters.
+
+In each GPU cluster, you are not allowed to compile and run your code on the
+head node. You must create a job script to submit your computation request
+(non-interactive jobs) to SLURM Scheduler, for the system to process in
+allocated GPU Compute Nodes.
+
+The resources to utilise for GPU computation is limited by the QoS
+(SLURM-Quality of Service) assigned to you.
+
+--------------------------------------------------------------------------------
+4.1 QoS assigned to the user  (p. 13)
+--------------------------------------------------------------------------------
+Command to view the QoS assigned to the user:
+    >> sacctmgr show user <username> withassoc format=user,qos
+
+    # You may copy and paste the commands to the command prompt in your SSH
+      session window for execution
+    # Replace the text "<username>" with your own username
+
+[SCREENSHOT] Example output showing the user "scetest6" can use the assigned
+QoS "normal" for GPU computations.
+
+Command to show the resources configured for the QoS:
+    >> sacctmgr -P show qos <Name of QoS> withassoc format=name,MaxTRESPU,MaxJobsPU,MaxWall
+    >> sacctmgr show qos <Name of QoS> withassoc format=name%+15,MaxTRESPU%+40,MaxJobsPU%+10,MaxWall%+10
+
+    # %+<value> is to add value to expand the viewing field
+
+--------------------------------------------------------------------------------
+4.2 Example showing the Resources assigned to QoS name "normal"  (p. 13)
+--------------------------------------------------------------------------------
+1. MaxTRESPU (Maximum Trackable RESources Per User):
+      cpu      (Maximum number of CPUs/CORES for the user to deploy)  = 10
+      gres/gpu (Maximum number of GPU for the user to deploy)         = 1
+      mem      (Maximum size of Memory for the user to deploy)        = 30G
+2. MaxJobsPU (Maximum number of Jobs Per User, can run at a given time) = 2
+3. MaxWall   (Maximum Wall clock time per user, to run the job, DD-HH:MM:SS) = 6-hr
+
+The SLURM job script is required, to specify the necessary resources,
+application, and path to execute your code. Then, submit the job script to
+SLURM at command line.
+
+Reference links on creating the SLURM job script:
+  https://slurm.schedmd.com/quickstart.html
+  https://svante.mit.edu/use_slurm.html
+
+--------------------------------------------------------------------------------
+4.3 Common SLURM commands to manage the job submission  (p. 14-15)
+--------------------------------------------------------------------------------
+Command   | Definition (#) & Use Examples (>>)
+----------+--------------------------------------------------------------------
+scontrol  | # View the details of a running job, based on its jobid and showing
+          |   the id of GPU card in the node running the job, under the line
+          |   "Nodes=TC2N01..."
+          |   >> scontrol show -d jobid <jobid>
+          |
+          | [SCREENSHOT] scontrol job detail output.
+          |
+          | # View the status of the nodes in the Partition "MGPU-TC2"
+          |   >> scontrol show node TC2N0[1-6]
+          |
+          | [SCREENSHOT] scontrol node status output.
+          |
+          | You can reference the resource status of the node, based on the
+          | information at the lines "CfgTRES" and "AllocTRES". The values
+          | shown under "AllocTRES" are the resources being allocated to the
+          | running jobs in the node.
+----------+--------------------------------------------------------------------
+sinfo     | # Display state of the compute nodes in respective partition
+          |   >> sinfo -N -l
+          |
+          | [SCREENSHOT] sinfo node listing.
+          |
+          | For STATE not showing "idle" or "mix", may indicate the node under
+          | NODELIST has been down.
+----------+--------------------------------------------------------------------
+sacct     | # To view your own job history
+          |   >> sacct --format=jobid,jobname%+15,qos,alloctres%+50,nodelist,start,elapsed,state,reason%+20
+          |
+          | # To view all job history for the day, option "-a"
+          |   >> sacct -a --format=user,jobid,jobname%+15,qos,alloctres%+50,nodelist,start,elapsed,state,reason%+20
+          |
+          | # Job viewing, excluding those lines with "batch..."
+          |   >> sacct -a --format=user,jobid,jobname%+15,qos,alloctres%+50,nodelist,start,elapsed,state,reason%+20 | grep -wv batch
+          |
+          | # List the jobs executed by specific user <username>
+          |   >> sacct -u <username>
+----------+--------------------------------------------------------------------
+sbatch    | # Submit a job script to the job queue
+          |   >> sbatch job.sh
+----------+--------------------------------------------------------------------
+scancel   | # The jobid can be obtained by the command "squeue"
+          | # Cancel a job base on its jobid
+          |   >> scancel <jobid>
+----------+--------------------------------------------------------------------
+squeue    | # Display the jobs in the job queue
+          |   >> squeue
+          |
+          | # List more available information with option 'la'
+          |   >> squeue -la
+          |
+          | # List the running jobs submitted by the user <username>
+          |   >> squeue -u <username>
+----------+--------------------------------------------------------------------
+seff      | # Slurm Job Efficiency Report
+          | # Display the statistics of resource being utilized by the completed
+          |   job, allow to review on the resource assignment for the job
+          |   >> seff <jobid of completed job>
+          |
+          | [SCREENSHOT] seff efficiency report output.
+----------+--------------------------------------------------------------------
+
+================================================================================
+5. GUIDELINE FOR SLURM JOB SUBMISSION  (p. 16-21)
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1 Step 1: Only apply the QoS assigned to you  (p. 16)
+--------------------------------------------------------------------------------
+The job submitted with unauthorized QoS (QoS not assigned for your use) will
+be terminated by the system with no prior notification.
+
+--------------------------------------------------------------------------------
+5.2 Step 2: Apply the QoS resources within the limit in your job script  (p. 16)
+--------------------------------------------------------------------------------
+You may use customized script to view your account and QoS Info:
+    >> mytcinfo
+
+[SCREENSHOT] mytcinfo output showing account and QoS information.
+
+In your job script, ensure to apply the job flag with stated value below or
+equal to (<=) the amount in the assigned QoS:
+
+  MaxJobsPU   The maximum of number of jobs allow to run at a time <= 2
+              You may submit two jobs to run at a time.
+
+  MaxWall     Total computation of your running jobs must not exceed the
+              maximum wall time <= 6-hr
+
+  MaxTRESPU   Total amount of resources allocated in your two job scripts must
+              not exceed the maximum values. For example: No of CPU/cores <=10,
+              Memory <=30GB and No of GPU Card=1, as stated in QoS assigned.
+
+  Note: The QoS resource values are subjected to change due to operational
+        requirements.
+  # Other customized scripts/commands are available under /tc2share/tc-scripts #
+
+--------------------------------------------------------------------------------
+5.3 Step 3: Create/Edit your SLURM job script  (p. 16-17)
+--------------------------------------------------------------------------------
+You may use any text editor available at your host machine, to create the job
+script, ensuring the job script is saved with file extension ".sh". Then,
+transfer to your home directory in the GPU Cluster to execute.
+
+[SCREENSHOT] Job script file being created/edited on host machine.
+
+In the Head Node, you may use those linux command line editors to edit your
+job script: vi, nano or ne.
+
+Some references links on Linux Command-line Editors:
+  https://www.guru99.com/the-vi-editor.html
+  https://www.geeksforgeeks.org/nano-text-editor-in-linux/
+
+The following are the basic job flags to apply in the job script:
+
+Resource      | Flag Syntax              | Description
+--------------+--------------------------+----------------------------------------
+Partition*    | --partition=MGPU-TC2     | # Specify the node group for your job
+              |                          |   execution, defines as Partition
+              |                          | # Command to list the available Partitions
+              |                          |   and allowed QoS in the Cluster
+              |                          |   >> scontrol show partition
+              |                          |
+QoS*          | --qos=normal             | # Specify the QoS to apply for the job
+              |                          | # The QoS must be one of them allow to
+              |                          |   execute in the Partition
+              |                          |
+nodes*        | --nodes=1                | # Number of compute nodes for the job
+              |                          | # Max node allows per job: 1
+              |                          |
+              | (optional)               | # Optional: you may specify the node
+              | --nodelist=<hostname>    |   (hostname) to run the job
+              |                          | # Command to list the idle nodes and their
+              |                          |   hostname in the Partition
+              |                          |   >> sinfo -N -p <Name of Partition> | grep idle
+              |                          |
+GPU*          | --gres=gpu:1             | # Specify the use of GPUs on compute nodes.
+              |                          | # The number of GPU card to use is
+              |                          |   corresponding to the assigned QoS
+              |                          | # This option must be present in the job
+              |                          |   script, for the system to deploy GPU
+              |                          |   resource
+              |                          |
+Memory*       | --mem=1000M              | # Specify on the memory to apply for the job.
+              | or --mem=1G              | # The value is corresponding to the assigned
+              |                          |   QOS, must not exceed the assigned maximum
+              |                          |   memory size.
+              |                          | # This option must be present in the job
+              |                          |   script, for the system to deploy the
+              |                          |   memory for the computation.
+              |                          |
+CPUs/cores    | --ntasks-per-node        | # Optional: only add this flag if want to
+              |                          |   apply more than one core for the
+              |                          |   computation
+              |                          | # Specify the number of "tasks" (cores) per
+              |                          |   node, for use with distributed
+              |                          |   parallelism. Default value=1
+              |                          |
+              | --cpus-per-task=1        | # Optional: only add this flag if want to
+              |                          |   apply more than one core for the
+              |                          |   computation
+              |                          | # Specify the number of CPU-cores to
+              |                          |   allocate to per task, for use with shared
+              |                          |   memory parallelism. Default value=1
+              |                          |
+Job name*     | --job-name=MyJob         | # Name of job
+              |                          |
+Output file*  | --output=output_%j.out   | # State the name of the file for standard
+              | or                       |   output
+              | --output=output_%x_%j.out|   Filename patterns:
+              |                          |     %x: job name
+              |                          |     %j: job id, generated by SLRUM
+              |                          |
+Error file*   | --error=error_%j.err     | # State the name of the file for error log
+              | or                       |   - if any
+              | --error=error_%x_%j.err  |
+              |                          |
+Time*         | --time=01:00:00          | # Specify a time limit for the job -
+              |                          |   hh:mm:ss
+              |                          | # The max timing is corresponded to MaxWall
+              |                          |   in assigned QOS
+--------------+--------------------------+----------------------------------------
+
+The flags with * must specify in the job script.
+
+The following is an example of a standard job script: job.sh
+
+    #!/bin/bash
+    #SBATCH --partition= MGPU-TC2
+    #SBATCH --qos=normal
+    #SBATCH --nodes=1
+    #SBATCH --gres=gpu:1
+    #SBATCH --time=01:00:00
+    #SBATCH --mem=1G
+    #SBATCH --job-name=MyJob
+    #SBATCH --output=output_%x_%j.out
+    #SBATCH --error=error_%x_%j.err
+
+    module load anaconda
+    eval "$(conda shell.bash hook)"
+    conda activate TestEnv
+
+Remarks (as given in the PDF side-notes):
+- You may add necessary flags from the table above. Do note that if you exceed
+  the limit for your QOS, the job will not run.
+- From this job script, 2 files will be created:
+    output_%x_%j.out
+      The standard output from running the code will be saved here
+    error_%x_%j.err
+      Error log from job if any
+- Load necessary modules needed to run the code.
+- While trying to activate your conda environment, you may encounter a
+  CommandNotFoundError.
+- Initialize the conda environment using eval "$(conda shell.bash hook)".
+- Activate your conda environment (if any).
+- Run your code.
+
+--------------------------------------------------------------------------------
+5.4 Step 4: Submit your job script  (p. 18)
+--------------------------------------------------------------------------------
+Action to submit a job                                | Command
+------------------------------------------------------+---------------------------
+To submit your job script, where job.sh is the name   | sbatch job.sh
+of your job script                                    |
+------------------------------------------------------+---------------------------
+
+The system should respond with a job ID.
+
+[SCREENSHOT] sbatch submission and returned job ID.
+
+--------------------------------------------------------------------------------
+5.5 Step 5: Avoid using the command "srun" to submit job  (p. 18)
+--------------------------------------------------------------------------------
+The command "srun" is to submit job at the command line for real time
+execution. You have to maintain your SSH session until the whole process
+completed. The disconnection of your SSH session may kill the process and
+cause you to lose the control over the execution.
+
+The command "sbatch" is to submit job for later execution, handling by SLURM
+in the background. Once submitted the job using "sbatch", you may exit from
+your SSH session, with no consequence.
+
+To avoid high volume of SSH connections to the Cluster Head Node, all users
+are advised to use the command "sbatch" for job submission.
+
+--------------------------------------------------------------------------------
+5.6 Step 6: Verify on the job queue and node operational status  (p. 18-19)
+--------------------------------------------------------------------------------
+Command to verify on the job queue:
+    >> squeue
+
+Command to verify on the resources being in used by the running jobs
+    For nodes under partition "MGPU-TC2" >> scontrol show node TC2N0[1-6]
+
+    # Look at the overall resources being allocated for node operation and
+      running jobs
+
+[SCREENSHOT] scontrol node output showing allocated resources.
+
+- The node selected to run the job is based on the available resources (CPU,
+  Memory, GPU and Compute nodes) at the time of submission.
+- For the jobs failed the assignment will go into PENDING queue.
+- The running jobs terminated due to node reset or failure, will also be
+  appearing in the PENDING queue.
+
+  # How to spot failing node #
+  - For node with state showing "DRAIN", indicating it has failed task. This
+    node is alive but may not able to accept new job and the performance of
+    existing running jobs may also be affected.
+  - Requiring the administrator to reset the affected node for operation. The
+    impact of the reset is the existing running jobs in the affected node will
+    be terminated. The affected jobs will have to join the PENDING queue for
+    re-assignment.
+
+  [SCREENSHOT] Node state example (DRAIN).
+
+  - Common reasons showing for such affected jobs in the PENDING queue:
+    Priority, Resources.
+  - The job will be executed when there is ready node and resource to assign
+    within Time Limit (referenced to the maximum wall time (MaxWall) stated in
+    the QoS).
+  - The pending job will be removed by the system when exceeded the Time Limit.
+
+  Advice:
+  - If there are many jobs in the PENDING queue with reasons of "Priority" or
+    "Resources", please defer your job submission until those jobs are cleared
+    in the queue.
+
+--------------------------------------------------------------------------------
+5.7 Step 7: Process your submitted SLURM job  (p. 19-20)
+--------------------------------------------------------------------------------
+Actions to check on job status                        | Command
+------------------------------------------------------+---------------------------
+Display the jobs in the scheduling queue              | squeue -la
+Display job history for a user <username>             | sacct -u <username>
+Show the detail for a running/pending job <jobid>     | scontrol show jobid <jobid>
+------------------------------------------------------+---------------------------
+
+If the Status indicates PD (PENDING) and NODELIST (REASON) indicates a reason
+in bracket, do note that the job has failed to run. Please cancel the job if
+this happens.
+
+[SCREENSHOT] squeue output showing PD state with (REASON) in brackets.
+
+For submitted job failed the QoS limit check (exceeded any of the values
+stated for the QoS), will go into the PENDING queue.
+
+Common reasons for job associates to QoS failure:
+
+- QOSMaxJobsPerUserLimit
+    - Verify on your total number of jobs in Running queue, must not exceed
+      the value stated in "MaxJobsPU".
+    - Extra job will go into the PENDING queue.
+
+- QOSMaxMemoryPerUser, QOSMaxCpuPerUserLimit, QOSMaxGRESPerUser
+    - The total resource count [ #SBATCH --mem=x, #SBATCH --ntasks-per-node=x ]
+      stated in all your submitted job scripts using the same QoS, must not
+      exceed the max value stated in "MaxTRESPU".
+
+- QOSMaxGRESPerUser
+    - This error may appear if unable to assign your jobs using the same QoS,
+      to the allocated (1) GPU Card.
+    - For this case, restrict to submit only one (1) job to run at a time.
+
+The job will only be executed when passed the checks for QoS limit and node
+assignment within the Time Limit (referenced to MaxWall stated in the QoS).
+The pending job will be removed by the system when reached the Time Limit.
+
+Advice for such encounter:
+- Cancel your pending jobs which failed the QoS limit Check.
+- Review and modify the resource values in your job script.
+- Restrict your number of job submission.
+
+Action to cancel the job                               | Command
+-------------------------------------------------------+--------------------------
+To cancel a job, where 263 is your job id              | scancel 263
+-------------------------------------------------------+--------------------------
+
+Once the job has finished running, it will be removed from the queue. You
+should be able to see the output file. If you did not specify a specific path
+for the output file in your SLURM script, it will be created in the directory
+where you submitted the SLURM job.
+
+--------------------------------------------------------------------------------
+5.8 Step 8: To know more about your completed jobs  (p. 20-21)
+--------------------------------------------------------------------------------
+You may use the customised script to view your job history for the day, with
+details on applied QoS, allocated resources (cpu, gpu, memory assigned for the
+job), node assigned, job-submit time, start time, elapsed time, state and
+reason:
+    >> myjobhistory
+
+[SCREENSHOT] myjobhistory output.
+
+# Know the actual GPU Card being assigned for your Running job #
+Using the command "scontrol", with option "-d":
+    >> scontrol -d show jobid <jobid of running job>
+
+    Look for the line "JOB_GRES=gpu:nvidia:x"
+
+[SCREENSHOT] scontrol -d output highlighting JOB_GRES line.
+
+- In TC2 GPU Cluster, every compute node has GPU Cards which range in number
+  from 4 to 8. The GPU cards are identified by SLURM as IDX:0, IDX:1, IDX:2,
+  IDX:3, IDX:4, IDX:5, IDX:6 and IDX:7, respectively.
+- The above example showing the job is executing on GPU Card 1 in the node
+  TC2N01.
+
+# To know about the actual utilization of the GPU Card processing your job,
+you may view those history files "MSAI-ActiveNode-YYYY-MM-DD-HH-MM", updating
+hourly for past 24-hours under /tc2share/Cluster-Information.
+# Use the command "more" to view those files for the day
+    >> more MSAI-ActiveNode-2023-04-21-*
+
+[SCREENSHOT] MSAI-ActiveNode history file content (GPU utilization).
+
+# Know the utilization of the GPU Card assigned to your Running job #
+
+[SCREENSHOT] nvidia-smi output from the GPU node.
+
+The information is retrieved using the command "nvidia-smi" from respective
+GPU node.
+
+Query Option                | Description
+----------------------------+---------------------------------------------------
+name                        | Official Product Name of the GPU Card
+                            |
+pci.bus_id                  | PCI Bus ID
+                            |
+driver_version              | The version of the installed NVIDIA Display
+                            | Driver
+                            |
+pstate                      | Current Performance state of the GPU Card,
+                            | ranging from P0 (maximum performance) to P12
+                            | (minimum performance)
+                            |
+temperature.gpu             | Core GPU Temperature, in Degrees C
+                            |
+memory.total [MiB]          | Total installed GPU Memory
+                            |
+memory.used [MiB]           | Total Memory being allocated by the active
+                            | contexts
+                            |
+*utilization.gpu [%]        | Percent of time over the past second during
+                            | which one or more kernels was executing on the
+                            | GPU
+                            |
+*utilization.memory [%]     | Percent of time over the past second during
+                            | which global (device) memory was being read or
+                            | written
+----------------------------+---------------------------------------------------
+* Utilization rates indicate how much of the GPU, the assigned job has been
+  using.
+
+You are advised to check on the GPU usage and status for your running job, to
+know whether your coding has been executing correctly and utilizing the
+resource efficiently.
+
+# Know the CPU and Memory being utilized for your Completed Job #
+Command to display the resource utilization statistics for your completed job,
+let you review and deploy the right number of resources (CPU/cores and Memory)
+for your computation:
+    >> seff <job id>
+
+[SCREENSHOT] seff output for a completed job.
+
+- The user may review the resources utilized and adjust the values of the CPU
+  and Memory in the job script accordingly to enhance the performance of
+  subsequent computations.
+
+================================================================================
+6. MISCELLANEOUS - SSH TUNNELING  (p. 22-25)
+================================================================================
+
+The GPU Clusters are only accessible via SSH connection. For the user
+requiring running Jupyter Notebooks, must learn to setup the SSH tunnel for
+computation.
+
+SSH tunneling (also known as SSH port forwarding) is a method of creating an
+encrypted SSH connection between a client and a server through which services
+port can be relayed.
+
+The following is an exemplary guide:
+Running Jupyter Notebook on a computer node that needs to be contacted by the
+web browser on your local computer.
+
+--------------------------------------------------------------------------------
+6.1 Step 1: SSH to GPU Head Node and setup Jupyter Notebook in your home
+    directory  (p. 22)
+--------------------------------------------------------------------------------
+Description                                 | Execution
+--------------------------------------------+-----------------------------------
+Load the anaconda module                    | # Execute Command
+                                            | >> module load anaconda
+                                            |
+Create and activate a conda environment     | # Execute Command
+                                            | >> conda create -n RunJupyter
+                                            | >> conda activate RunJupyter
+                                            |
+Install the required package for Jupyter    | # Execute Command
+Notebook from third-party channel           | >> conda install -c conda-forge jupyter
+"conda-forge"                               |
+                                            |
+Deactivate the conda environment            | # Execute Command
+                                            | >> conda deactivate
+--------------------------------------------+-----------------------------------
+
+--------------------------------------------------------------------------------
+6.2 Step 2: Create the job script  (p. 22)
+--------------------------------------------------------------------------------
+Description                                 | Execution
+--------------------------------------------+-----------------------------------
+Create the job script to run Jupyter        | # Sample of the job script
+Notebook. For this example, the job script  |
+is named as "run1.sh"                       | #!/bin/sh
+                                            | #SBATCH --partition=MGPU-TC2
+                                            | #SBATCH --qos=normal
+                                            | #SBATCH --gres=gpu:1
+                                            | #SBATCH --nodes=1
+                                            | #SBATCH --mem=1G
+                                            | #SBATCH --job-name=run1
+                                            | #SBATCH --time=01:00:00
+                                            | #SBATCH --output=output_%x_%j.out
+                                            | #SBATCH --error=error_%x_%j.err
+                                            |
+                                            | module load anaconda
+                                            | eval "$(conda shell.bash hook)"
+                                            | conda activate RunJupyter
+                                            | jupyter-notebook --ip=$(hostname -i) --port=8887
+--------------------------------------------+-----------------------------------
+Submit the job script                       | # Execute Command
+                                            | >> sbatch run1.sh
+--------------------------------------------+-----------------------------------
+
+--------------------------------------------------------------------------------
+6.3 Step 3: Verify the access information in the error log  (p. 23)
+--------------------------------------------------------------------------------
+Take note of the IP address, port number and the URL for web access.
+
+[SCREENSHOT] Error log (error_%x_%j.err) content showing the Jupyter URL with
+IP address and port.
+
+--------------------------------------------------------------------------------
+6.4 Step 4: Start another SSH session from your local machine  (p. 23)
+--------------------------------------------------------------------------------
+In your local machine, start another SSH session to the cluster which you have
+accessed.
+
+[SCREENSHOT] New PuTTY session window.
+
+--------------------------------------------------------------------------------
+6.5 Step 5: Configure the tunnel  (p. 24)
+--------------------------------------------------------------------------------
+Expand the category of "SSH" and select "Tunnels".
+
+Input the IP address and port number obtained in the Error Log as show above.
+Click on the button "Add" to add into the Forwarded ports.
+
+[SCREENSHOT] PuTTY SSH > Tunnels configuration with forwarded port added.
+
+--------------------------------------------------------------------------------
+6.6 Step 6: Open the SSH session  (p. 24)
+--------------------------------------------------------------------------------
+Click on the button "Open" to start the SSH session. Login using your NTU
+username and password to establish the connection.
+
+--------------------------------------------------------------------------------
+6.7 Step 7: Access the URL in your local machine  (p. 24)
+--------------------------------------------------------------------------------
+Finally, you may access the URL in your local machine (the Jupyter Notebook
+URL captured from the error log).
+
+[SCREENSHOT] Local web browser displaying the Jupyter Notebook page.
+
+--------------------------------------------------------------------------------
+6.8 Step 8: Shut down Jupyter  (p. 25)
+--------------------------------------------------------------------------------
+The operation of Jupyter will terminate when you select "Shut Down" in the web
+page. Then, you may logout from the SSH session set with the forwarded port.
+
+[SCREENSHOT] Jupyter "Shut Down" confirmation page.
+
+================================================================================
+7. OTHER RESOURCES FOR APPLICATION  (p. 26)
+================================================================================
+
+--------------------------------------------------------------------------------
+7.1 QoS (additional)
+--------------------------------------------------------------------------------
+The user may apply additional QoS for:
+- longer computation hour, selecting range: 8-hr, 12-hr, 24-hr, till max 48-hr
+- computation with more resource allocation: CPUs, Memory and GPU Card
+
+Usage period: not more than 1-month
+
+Method to apply:
+- Send the request e-mail to CCDS GPU-TC [ccdsgpu-tc@ntu.edu.sg]
+- Must provide valid reason for additional usage requirements and data showing
+  that the latest coding and computational results executed on the assigned
+  QoS is unable to support the user's current computational requirements
+- The administrator will evaluate, verify on the real requirements, and then
+  assign the QoS accordingly
+- The requestor will be notified, upon successful application
+
+--------------------------------------------------------------------------------
+7.2 Additional Storage Space
+--------------------------------------------------------------------------------
+The user may apply additional storage space for computation data more than
+100GB. A share folder will be created in another storage to assign to the user.
+
+Usage period: 4-months
+Maximum usage quota: depending on the available free space and approval
+
+Method to apply:
+- Send the request e-mail to CCDS GPU-TC [ccdsgpu-tc@ntu.edu.sg]
+- Must provide the reason and data to support the usage request
+- The user will be receiving the PDF form, via e-mail, to complete for the
+  application
+- The user will be notified of the resource assignment, upon successful
+  application
+
+--------------------------------------------------------------------------------
+7.3 Terms and Conditions
+--------------------------------------------------------------------------------
+- The application is subjected to resource availability, cluster operational
+  workload and administration approval.
+- The usage of the assigned resource will be monitored.
+- The administrator claims the right to revoke the assigned resource if the
+  usage has been verified to be underused or impacts the operations of the
+  GPU Cluster.
+- The assigned resource will be removed upon usage expiry, with no prior
+  notification.
+
+================================================================================
+8. IMPORTANT NOTICE  (p. 27)
+================================================================================
+
+1. System Administrators claim the right to remove the accounts of users and
+   the folders assigned to users without prior notice.
+
+2. NO backups will be provided for data stored in folders assigned to users.
+   Users are responsible for protecting and maintaining their own data.
+
+3. Additional user folders and additional QoS assigned to users will be
+   removed after the usage expiry date, without prior notice.
+
+4. Resources are to be used for academic purposes only. Use of resources for
+   purposes other than that for which they were granted will result in the
+   termination of the account.
+
+5. Your computation is being monitored. For jobs submitted with unauthorised
+   QOS (NOT assigned for your use) and operations, will be terminated with no
+   prior notification. Severe offenders may be barred from the service.
+
+6. DO NOT access directories other than your Home Directory or Shared folder.
+   Unauthorised access to other directories or files, even for the purpose of
+   "browsing", shall be deemed as a security breach. Serious action will be
+   taken against users committing any breach to the CCDS GPU Cluster.
+
+7. For issues regarding your coursework and project, please consult your
+   Supervisor or TA (Teaching Assistant).
+
+8. For technical issues, send an email to CCDS GPU-TC [ccdsgpu-tc@ntu.edu.sg]
+
+                                        ~ End ~
+
+================================================================================
+APPENDIX: QUICK REFERENCE - ALL REFERENCE LINKS MENTIONED IN THE DOCUMENT
+================================================================================
+- PuTTY download (portable "putty.exe"):
+  http://www.chiark.greenend.org.uk/~sgtatham/putty/download.html
+- PuTTY references: https://www.ssh.com/academy/ssh/putty
+  https://www.ssh.com/academy/ssh/putty/mac
+  https://www.servermania.com/kb/articles/ssh-mac/
+- WinSCP: https://winscp.net/eng/index.php
+  https://winscp.net/eng/docs/guide_install
+- FileZilla: https://filezilla-project.org/index.php
+- MAC SFTP/terminal references:
+  https://help.uillinois.edu/TDClient/37/uic/KB/ArticleDet?ID=582
+  https://www.servermania.com/kb/articles/ssh-mac
+  https://beebom.com/how-to-use-mac-terminal-ftp-sftp-client/
+  https://tipsmake.com/use-terminal-on-mac-as-ftp-or-sftp-client
+- NTU VPN: https://ntuvpn.ntu.edu.sg
+- ncdu: https://ostechnix.com/check-disk-space-usage-linux-using-ncdu/
+- Basic Linux commands:
+  https://serverdale.com/en/linux-commands
+  https://centoshelp.org/resources/commands/linux-system-commands/
+  https://www.guru99.com/must-know-linux-commands.html
+- Anaconda download: https://www.anaconda.com/download/success
+- Miniconda: https://docs.conda.io/en/latest/miniconda.html
+  (installers also available on the cluster under /apps/_installers)
+- Conda environment management:
+  https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-with-commands
+- Conda channels:
+  https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/channels.html
+- conda-forge channel:
+  https://ostechnix.com/enable-conda-forge-channel-for-conda-package-manager/
+- CUDA compatibility: https://docs.nvidia.com/deploy/cuda-compatibility/index.html
+- cudatoolkit (Anaconda cloud): https://anaconda.org/nvidia/cudatoolkit
+- Conda package installation:
+  https://www.anaconda.com/docs/tools/working-with-conda/packages/install-packages
+  https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-pkgs.html#installing-packages
+- SLURM quickstart: https://slurm.schedmd.com/quickstart.html
+- SLURM usage example (MIT): https://svante.mit.edu/use_slurm.html
+- vi editor: https://www.guru99.com/the-vi-editor.html
+- nano editor: https://www.geeksforgeeks.org/nano-text-editor-in-linux/
+- Support e-mail: ccdsgpu-tc@ntu.edu.sg
+
+================================================================================
+APPENDIX: KEY FACTS AT A GLANCE
+================================================================================
+Cluster name         : CCDS GPU CLUSTER TC2
+Head Node IP         : 10.96.189.12 (SSH port 22)
+Access               : NTU network only; off-campus via NTU VPN (https://ntuvpn.ntu.edu.sg)
+Login credential     : NTU Network Account ID (lower case) & password
+Compute              : Compute nodes TC2N01-TC2N06 (partition MGPU-TC2), each node
+                       has 4-8 NVIDIA GPU cards (SLURM IDX:0-7)
+Head node rule       : No compiling/running code on Head Node; submit
+                       non-interactive jobs via SLURM (sbatch)
+Partition            : MGPU-TC2
+QoS (normal example) : MaxTRESPU: cpu=10, gres/gpu=1, mem=30G;
+                       MaxJobsPU=2; MaxWall=6-hr
+Job flags required*  : --partition, --qos, --nodes, --gres (GPU), --mem,
+                       --job-name, --output, --error, --time
+Submission           : sbatch job.sh (avoid srun); cancel with scancel <jobid>
+Custom scripts       : mytcinfo (account/QoS info), myjobhistory (job history
+                       for the day); more scripts under /tc2share/tc-scripts
+Monitoring           : squeue, sacct, scontrol show node TC2N0[1-6],
+                       seff <jobid>, nvidia-smi (on GPU nodes)
+GPU history files    : /tc2share/Cluster-Information/MSAI-ActiveNode-YYYY-MM-DD-HH-MM
+                       (hourly, past 24 hours)
+Modules              : module avail / show / load / list / unload / purge
+                       (shared modules under /cm/shared/modulefiles)
+Conda                : module load anaconda; base env is read-only; create own
+                       envs; prefer conda install over pip; cuda module example:
+                       module load cuda/12.8.0
+Auto-activate env    : append "module load anaconda/25.5.1" and
+                       "conda activate yourenvname" to ~/.bashrc
+Disk quota           : ~100GB for students; keep usage below 98%; check with ncdu
+Jupyter              : SSH tunneling required (see Section 6), sample port 8887
+Support              : CCDS GPU-TC [ccdsgpu-tc@ntu.edu.sg]
+Document footer      : "Update [ 13 August 2025 ] | Restricted | Page N of 27"
+
+(Typos and phrasing preserved from the original document where quoted:
+"knowns as non-interactive job", "Best practice to exist the SSH session",
+"job id, generated by SLRUM", etc.)
