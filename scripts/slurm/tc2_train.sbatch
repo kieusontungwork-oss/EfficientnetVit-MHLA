@@ -40,6 +40,7 @@ if [ ! -f "$RUN_DIR/final.pt" ]; then
     --init-checkpoint "$INIT_CHECKPOINT" --init-scope "$INIT_SCOPE" "$SLICE_FLAG" \
     --batch-size "$BATCH_SIZE" --grad-accum-steps "$GRAD_ACCUM_STEPS" \
     --crop-height "$CROP_HEIGHT" --crop-width "$CROP_WIDTH" \
+    --backbone-lr-multiplier "$BACKBONE_LR_MULTIPLIER" \
     --lr "$LR" --weight-decay "$WEIGHT_DECAY" --warmup-steps "$WARMUP_STEPS" \
     --min-lr-ratio "$MIN_LR_RATIO" --grad-clip "$GRAD_CLIP" \
     --max-steps "$MAX_STEPS" --seed "$SEED" \
